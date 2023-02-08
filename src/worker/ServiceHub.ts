@@ -8,9 +8,12 @@ import { registSingletonObject } from './Singleton'
 class ServiceHub {
   constructor() {
     registSingletonObject(MessagePipeline, 200)
-    registSingletonObject(ExtensionManager)
+    const manager = registSingletonObject(ExtensionManager)
     registSingletonObject(ResourceObserver, this.mocks)
     this.resourceService = registSingletonObject(ResourceService)
+    manager.postStartupCommand()
+    manager.activeAllService()
+    manager.broadcastCommand('i18n')
     // this.workbechService = new WorkbenchService(pipeline, this.workbenchObserver);
     const WebSocketServer = require('ws').Server
     this.server = new WebSocketServer({address: 'localhost', port: 21313 })

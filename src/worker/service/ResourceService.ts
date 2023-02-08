@@ -1,6 +1,5 @@
 import { MessagePipeline } from '../MessageTransfer'
 import { joinPath } from '../../public/String'
-import { ReplyType } from '../Message'
 import { CivetProtocol } from 'public/Event'
 import { Resource } from '../../public/Resource'
 import { thumbnail2Base64 } from '../../public/Utility'
@@ -28,6 +27,7 @@ export class ResourceService{
     this.pipeline = pipeline
     pipeline.regist('addImagesByDirectory', this.addFilesByDir, this)
     pipeline.regist(IPCNormalMessage.ADD_RESOURCES_BY_PATHS, this.addImagesByPaths, this)
+    pipeline.regist(IPCNormalMessage.UPDATE_RESOUCE_BY_ID, this.updateResource, this)
     pipeline.regist('getImagesInfo', this.getImagesInfo, this)  // deprect
     pipeline.regist('getFilesSnap', this.getFilesSnap, this)
     pipeline.regist('getImageInfo', this.getImageInfo, this)
@@ -38,7 +38,6 @@ export class ResourceService{
     pipeline.regist('getAllTags', this.getAllTags, this)
     pipeline.regist(IPCNormalMessage.GET_ALL_CLASSES, this.getAllCategory, this)
     pipeline.regist('getAllTagsWithImages', this.getAllTagsWithImages, this)
-    pipeline.regist('queryFiles', this.queryFiles, this)
     pipeline.regist('addCategory', this.addCategory, this)
     pipeline.regist(IPCNormalMessage.GET_CLASSES_DETAIL, this.getCategoryDetail, this)
     pipeline.regist(IPCNormalMessage.GET_UNCATEGORY_RESOURCES, this.getUncategoryImages, this)
@@ -77,6 +76,16 @@ export class ResourceService{
     }
   }
 
+  private updateResource(msgid: number, resourceID: number) {
+    this.observer.update(msgid, resourceID)
+  }
+
+  getResource(resourceID: number) {
+    let ids = [resourceID]
+    const imgs = CivetDatabase.getFilesInfo(ids)
+    return new Resource(imgs[0])
+  }
+
   getImagesInfo(msgid: number, data: any) {
     updateStatus('reading files')
     let imagesIndex = []
@@ -100,30 +109,23 @@ export class ResourceService{
       }
       images.push(resource)
     }
-    return {type: ReplyType.REPLY_IMAGES_INFO, data: images}
-    // reply2Renderer(ReplyType.REPLY_IMAGES_INFO, images)
+    return {type: IPCRendererResponse.getImagesInfo, data: images}
   }
 
   getFilesSnap(msgid: number, data: any) {
     // 全部图片信息
-    const imagesSnap = CivetDatabase.getFilesSnap(undefined)
-    return {type: ReplyType.REPLY_FILES_SNAP, data: imagesSnap}
+    let imagesSnap = CivetDatabase.getFilesSnap(undefined)
+    if (!imagesSnap) imagesSnap = []
+    return {type: IPCRendererResponse.getFilesSnap, data: imagesSnap}
     // reply2Renderer(ReplyType.REPLY_FILES_SNAP, imagesSnap)
   }
 
   getImageInfo(msgid: number, imageID: number) {
     const img = CivetDatabase.getFilesInfo([imageID])
     console.info('getImagesInfo', img)
-    // let blob = new Blob([file.thumbnail], { type: 'image/jpeg' })
-    //     let reader = new FileReader()
-    //     reader.onload = function(e) {
-    //       this.thumbnail = e.target.result
-    //       console.info('this.thumbnail', this.thumbnail)
-    //     }
-    // reader.readAsDataURL(blob)
     const image = new Resource(img[0])
     // reply2Renderer(ReplyType.REPLY_IMAGE_INFO, image)
-    return {type: ReplyType.REPLY_IMAGE_INFO, data: image}
+    return {type: IPCRendererResponse.getImageInfo, data: image}
   }
   setTag(msgid: number, data: any) {
     console.info(data)
@@ -143,21 +145,14 @@ export class ResourceService{
   }
   getAllTags(msgid: number, data: any) {
     const allTags = CivetDatabase.getAllTags()
-    // reply2Renderer(ReplyType.REPLY_ALL_TAGS, allTags)
-    return {type: ReplyType.REPLY_ALL_TAGS, data: allTags}
+    return {type: IPCRendererResponse.getAllTags, data: allTags}
   }
   getAllTagsWithImages(msgid: number, data: any) {
     const allTags = CivetDatabase.getTagsOfFiles(data)
     console.info('allTags', allTags)
     // reply2Renderer(ReplyType.REPLY_ALL_TAGS_WITH_IMAGES, allTags)
   }
-  queryFiles(msgid: number, nsql: any) {
-    console.info('query:', nsql)
-    const allFiles = CivetDatabase.query(nsql)
-    console.info('reply: ', allFiles)
-    // reply2Renderer(ReplyType.REPLY_QUERY_FILES, allFiles)
-    return {type: ReplyType.REPLY_QUERY_FILES, data: allFiles}
-  }
+
   addCategory(msgid: number, mutation: any) {
     console.info('add class', mutation)
     if (typeof mutation === 'string') {
@@ -169,7 +164,6 @@ export class ResourceService{
     const category = CivetDatabase.getClasses('/')
     // let category = await CategoryArray.loadFromDB()
     console.info('getAllCategory', category)
-    // reply2Renderer(ReplyType.REPLAY_ALL_CATEGORY, category)
     return {type: IPCRendererResponse.getAllCategory, data: category}
   }
   getCategoryDetail(msgid: number, parent: any) {
@@ -180,16 +174,14 @@ export class ResourceService{
   async getUncategoryImages(msgid: number, data: any) {
     updateStatus('reading unclassify info')
     const uncateimgs = CivetDatabase.getUnClassifyFiles()
-    // reply2Renderer(ReplyType.REPLY_UNCATEGORY_IMAGES, uncateimgs)
     console.info('unclasses', uncateimgs, data)
-    return {type: ReplyType.REPLY_UNCATEGORY_IMAGES, data: uncateimgs}
+    return {type: IPCRendererResponse.getUncategoryImages, data: uncateimgs}
   }
   getUntagImages() {
     updateStatus('reading untag info')
     const untagimgs = CivetDatabase.getUnTagFiles()
-    // reply2Renderer(ReplyType.REPLY_UNTAG_IMAGES, untagimgs)
     console.info('untag', untagimgs)
-    return {type: ReplyType.REPLY_UNTAG_IMAGES, data: untagimgs}
+    return {type: IPCRendererResponse.getUntagImages, data: untagimgs}
   }
   // updateImageCategory(msgid: number, data: any) {
   //   storage.updateFileClass(data.imageID, data.category)
@@ -235,7 +227,7 @@ export class ResourceService{
       await this.observer.read(msgid, resourcePath)
     }
   }
-
+  
   private readDir(msgid: number, path: ResourcePath, cb?: (r: Resource) => void) {
     let self = this;
     fs.readdir(path.local(), async function(err: any, menu: any) {

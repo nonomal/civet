@@ -1,26 +1,28 @@
 import path from 'path'
 import { MessagePipeline } from './MessageTransfer'
 import { Resource, StorageAccessor } from '@/../public/Resource'
+import { i18n } from '@/../public/String'
 import { ResourcePath } from './common/ResourcePath'
 import { Result } from './common/Result'
 import { config } from '@/../public/CivetConfig'
 import { APIFactory } from './ExtensionAPI'
 import { isFileExist, getExtensionPath} from '@/../public/Utility'
-import { CivetDatabase } from './Kernel'
 import { PropertyType } from '../public/ExtensionHostType'
 import { ExtensionInstallManager, ExtensionDescriptor } from './ExtensionInstallManager'
 import fs from 'fs'
 import { injectable, showErrorInfo, getSingleton } from './Singleton'
 import { IPCRendererResponse, IPCNormalMessage } from '@/../public/IPCMessage'
-import { ExtensionPackage, ExtensionType, MenuDetail } from './ExtensionPackage'
+import { ExtensionPackage, ExtensionActiveType, MenuDetail, KeybindDetail } from './ExtensionPackage'
 import { BaseService, IStorageService } from './service/ServiceInterface'
 import { StorageService } from './service/StorageService'
+import { ResourceService } from './service/ResourceService'
 import { ViewService } from './service/ViewService'
 import { BackgroundService } from './service/BackgroundService'
-import { Emitter } from 'public/Emitter'
 import { createMixService as applyMixService, MixService } from './service/MixService'
 import { ExtensionModule } from './api/ExtensionRequire'
+import { ExtSearchBarManager } from './view/extHostSearchBar'
 import { IResource, ResourceProperty } from 'civet'
+import { ExtOverviewEntry } from './view/extHostOverview'
 
 export interface ExtensionAccessor {
   visit(extension: ViewService): void;
@@ -75,12 +77,41 @@ class ExtensionMenuAccessor implements ExtensionAccessor {
   }
 }
 
-class MenuCommand {
-  group: string;
-  command: string;
-  name: string;
-  id: string;
+class ExtensionKeybindAccessor implements ExtensionAccessor {
+  #keybinds: KeybindDetail[] = [];
+  #view: string;
+  #when: string;
+
+  constructor(context: string) {
+    [this.#when, this.#view] = context.split('.')
+    const keybind = config.getShortCuts(this.#view)
+    console.info('keybind:', keybind)
+    for (const key in keybind) {
+      const item = keybind[key]
+      this.#keybinds.push(
+        {
+          command: item.command,
+          key: key,
+          desc: item.desc,
+          when: this.#when,
+          mac: ''
+        }
+      )
+    }
+  }
+
+  visit(service: ViewService) {
+    // const items: KeybindDetail[] = keybind[this.#context]
+    // if (items) {
+    //   this.#keybinds = this.#keybinds.concat(items)
+    // }
+  }
+
+  result(){
+    return this.#keybinds
+  }
 }
+
 class ExtensionAllMenuAccessor implements ExtensionAccessor {
   #menus: any[] = [];
 
@@ -111,6 +142,7 @@ export class ExtensionManager {
   #extensionPackages: Map<string,ExtensionPackage> = new Map<string,ExtensionPackage>(); // name, extension package
   #services: Map<string, BaseService> = new Map<string, BaseService>();
   #extensionsOfContentType: Map<string,BaseService[]> = new Map<string, BaseService[]>();  // contentType, service
+  #extensionOfCommand: Map<string, BaseService[]> = new Map<string, BaseService[]>();
   #storageService: StorageService[] = [];
   private _installManager: ExtensionInstallManager|null = null;
 
@@ -135,7 +167,7 @@ export class ExtensionManager {
     // npm extension
     this._initExternalExtension()
     this._initFrontEndEvent(pipeline)
-    // this._installRouter()
+    this._initCommandExtension()
     // storage service for test
     this.#storageService.push(new StorageService())
   }
@@ -156,14 +188,6 @@ export class ExtensionManager {
           visited[name] = name
         }
       }
-      // clean service that is not in the config
-      // for (let idx = this._extensions.length; idx >= 0; ++idx) {
-      //   let name = this._extensions[idx].name
-      //   console.info('key', name)
-      //   if (visited[name] === undefined) {
-      //     this._extensions.splice(idx)
-      //   }
-      // }
     }
   }
 
@@ -175,47 +199,33 @@ export class ExtensionManager {
 
   private createServiceByPackage(pack: ExtensionPackage): BaseService {
     let mixCtor = []
-    if (pack.extensionType & ExtensionType.ViewExtension) {
+    if (pack.extensionType & ExtensionActiveType.ViewExtension) {
       mixCtor.push(ViewService)
     }
-    if (pack.extensionType & ExtensionType.BackgroundExtension) {
+    if (pack.extensionType & ExtensionActiveType.BackgroundExtension) {
       mixCtor.push(BackgroundService)
     }
-    if (pack.extensionType & ExtensionType.StorageExtension) {
+    if (pack.extensionType & ExtensionActiveType.StorageExtension) {
       mixCtor.push(StorageService)
+    }
+    if (pack.extensionType & ExtensionActiveType.Command) {
     }
     applyMixService(MixService, mixCtor)
     return new MixService(pack)
   }
 
-  private initialize(pack: ExtensionPackage): any {
+  private initialize(pack: ExtensionPackage): ExtensionModule {
     if (!fs.existsSync(pack.main)) {
       const msg = `file not exist: ${pack.main}`
       showErrorInfo({msg: msg})
-      return null
+      throw new Error(msg)
     }
     const content = fs.readFileSync(pack.main, 'utf-8')
     const pipe = getSingleton(MessagePipeline)
     const m = new ExtensionModule(pack.name, module.parent, pipe!)
     m._compile(content, pack.name)
-    console.debug(`initialize ${pack.name}:${m.exports}`)
-    try {
-      // m.exports.run()
-      let instance = null
-      if (m.exports.activate) {
-        instance = m.exports.activate()
-      }
-      if (!instance && (pack.extensionType & ExtensionType.BackgroundExtension)) {
-        const msg = `${pack.name}'s activate is not defined.`
-        console.error(msg)
-        return null
-      }
-      return instance
-    } catch (error) {
-      const msg = `initialize ${pack.name} fail: ${error}`
-      showErrorInfo({msg: msg})
-      return null
-    }
+    console.debug(`initialize ${pack.name}:${JSON.stringify(m.exports)}`)
+    return m
   }
 
   /**
@@ -227,10 +237,11 @@ export class ExtensionManager {
         const packPath = root + '/' + extensionName
         const pack = new ExtensionPackage(packPath)
         this.#extensionPackages.set(extensionName, pack)
-        if (!(pack.extensionType & ExtensionType.ViewExtension)) return false
+        if (!(pack.extensionType & ExtensionActiveType.ViewExtension)) return false
         const service = this.createServiceByPackage(pack)
         const instance = this.initialize(pack)
-        service.service = instance
+        if (!instance) return false
+        service.module = instance
         this.#services.set(service.name, service)
         return true
       }
@@ -246,13 +257,13 @@ export class ExtensionManager {
       if (!service) {
         service = self.createServiceByPackage(pack)
         const instance = self.initialize(pack)
-        service.service = instance
+        if (instance) service.module = instance
         self.services.set(name, service)
       }
       return service
     }
     for(const pack of this.#extensionPackages) {
-      if (!(pack[1].extensionType & ExtensionType.BackgroundExtension)) continue
+      if (!(pack[1].extensionType & ExtensionActiveType.BackgroundExtension)) continue
       // console.debug(pack[0], 'extension type', pack[1].extensionType, pack[1].extensionType & ExtensionType.BackgroundExtension)
       const dependencies = pack[1].dependency
       if (!dependencies) {
@@ -286,7 +297,25 @@ export class ExtensionManager {
     pipeline.regist(IPCNormalMessage.UPDATE_EXTENSION, this.update, this)
     pipeline.regist(IPCNormalMessage.LIST_EXTENSION, this.installedList, this)
     pipeline.regist(IPCNormalMessage.GET_OVERVIEW_MENUS, this.replyMenus, this)
+    pipeline.regist(IPCNormalMessage.GET_OVERVIEW_KEYBINDS, this.replyKeybinds, this)
     pipeline.regist(IPCNormalMessage.POST_COMMAND, this.onRecieveCommand, this)
+  }
+
+  private _initCommandExtension() {
+    for(const pack of this.#extensionPackages) {
+      for (const command of pack[1].activeCommands) {
+        let service = this.#services.get(pack[0])
+        if (!service) {
+          service = this.createServiceByPackage(pack[1])
+          service.module = this.initialize(pack[1])
+          this.#services.set(pack[0], service)
+        }
+        let commandOfServices = this.#extensionOfCommand.get(command)
+        if (!commandOfServices) commandOfServices = [service]
+        else commandOfServices.push(service)
+        this.#extensionOfCommand.set(command, commandOfServices)
+      }
+    }
   }
 
   private _initInstaller(extensionPath: string) {
@@ -307,22 +336,66 @@ export class ExtensionManager {
     }
   }
 
-  install(msgid: number, extinfo: any) {
+  postStartupCommand() {
+    const activate = function (extens: Map<string, BaseService[]>, cmd: string) {
+      const services = extens.get(cmd)
+      console.debug('startup service', services)
+      for (const serv of services!) {
+        serv.activate()
+      }
+    }
+    // read startup command of config
+    const curDB = config.getCurrentDB() || ''
+    const db = config.getResourceByName(curDB)
+    const commands = (db !== null? db['command'] : []) || []
+    for (const cmd of commands) {
+      activate(this.#extensionOfCommand, cmd)
+    }
+    // use default command
+    if (commands.length === 0) {
+      activate(this.#extensionOfCommand, 'std.search')
+    }
+    // update search bar
+    const searchBar = getSingleton(ExtSearchBarManager)
+    searchBar!.initSearchBarFinish()
+  }
+
+  async broadcastCommand(command: string, ...args: any) {
+    for (let item of this.#extensionPackages) {
+      if (item[1].viewEvents & ExtensionActiveType.StorageExtension) {
+        const service = this.#services.get(item[0])
+        if (!service) continue
+        const results = await service.envoke(command, args)
+        if (results) {
+          const pipe = getSingleton(MessagePipeline)
+          pipe?.post(command, results)
+        }
+      }
+    }
+  }
+
+  async install(msgid: number, extinfo: any) {
     const extPath = getExtensionPath()
     this._initInstaller(extPath)
-    const result = this._installManager!.install(extinfo.name, extinfo.version)
+    const result = await this._installManager!.install(extinfo.name, extinfo.version)
     if (result) {
       // load extension
       const root = getExtensionPath()
-      this._initPackageAndViewService(root, extinfo.name, this._pipeline)
+      try {
+        console.debug('install', root, extinfo)
+        this._initPackageAndViewService(root, extinfo.name, this._pipeline)
+        this.#services.get(extinfo.name)!.activate()
+      } catch (err: any) {
+        console.error('install', err)
+      }
     }
     return {type: IPCRendererResponse.install, data: result}
   }
 
-  uninstall(msgid: number, extname: string) {
+  async uninstall(msgid: number, extname: string) {
     const extPath = getExtensionPath()
     this._initInstaller(extPath)
-    const result = this._installManager!.uninstall(extname)
+    const result = await this._installManager!.uninstall(extname)
     return {type: IPCRendererResponse.uninstall, data: result}
   }
 
@@ -354,6 +427,14 @@ export class ExtensionManager {
     return {type: IPCRendererResponse.getOverviewMenus, data: menus}
   }
 
+  accessKeybind(keybindAccessor: ExtensionKeybindAccessor) {
+    this.#services.forEach((service: BaseService) => {
+      keybindAccessor.visit(service as ViewService)
+    })
+    const keybinds = keybindAccessor.result()
+    return {type: IPCRendererResponse.getOverviewKeybinds, data: keybinds}
+  }
+
   replyMenus(msgid: number, context: string|undefined) {
     if (context) {
       let menuAccessor: ExtensionMenuAccessor = new ExtensionMenuAccessor(context);
@@ -361,6 +442,17 @@ export class ExtensionManager {
     }
     let menuAccessor: ExtensionAllMenuAccessor = new ExtensionAllMenuAccessor()
     return this.accessMenu(menuAccessor)
+  }
+
+  replyKeybinds(msgid: number, context: string | undefined) {
+    if (context) {
+      const [view, id] = context.split('.')
+      const entry = getSingleton(ExtOverviewEntry)!
+      const overview = entry.getOverviewsByName(id)!
+      let keybidnAccessor: ExtensionKeybindAccessor = new ExtensionKeybindAccessor(view + '.' + overview.extensionName)
+      return this.accessKeybind(keybidnAccessor)
+    }
+    return undefined
   }
 
   replyAllCommand(msgid: number) {
@@ -394,6 +486,30 @@ export class ExtensionManager {
     // this._extensionsOfConfig = resource['extensions']
   }
 
+  activeAllService() {
+    console.debug('begin active extension')
+    for (const service of this.#services) {
+      service[1].activate()
+    }
+    console.debug('finish active extension')
+  }
+
+  updateResource(msgid: number, resourceID: number) {
+    const resourceService = getSingleton(ResourceService)
+    const resource = resourceService?.getResource(resourceID)!
+    console.debug('update resource', resource, resourceID)
+    const services = this.#extensionsOfContentType.get(resource.type)
+    if (!services) {
+      showErrorInfo({msg: `${resource.type} ${i18n('extension is not exist')}`})
+      return
+    }
+    for (const service of services!) {
+      console.debug(service.name, 'emit read')
+      resource.path = path.normalize(resource.path)
+      service.emit('read', msgid, resource.id, resource.path, resource)
+    }
+  }
+
   async read(msgid: number, uri: ResourcePath): Promise<Result<Resource, string>> {
     const f = path.parse(uri.local())
     const extname = f.ext.substr(1).toLowerCase()
@@ -401,7 +517,7 @@ export class ExtensionManager {
     if (!extensions || extensions.length === 0) {
       const msg = `No extensions can read ${extname} file`
       showErrorInfo({msg: msg})
-      return Result.failure(msg)
+      // return Result.failure(msg)
     }
     let resource: Resource = APIFactory.createResource(this._pipeline);
     resource.filename = f.base
@@ -415,9 +531,14 @@ export class ExtensionManager {
     resource.putProperty({ name: 'path', value: uri.local(), type: PropertyType.String, query: false, store: true })
     this.emitStorageEvent(msgid, resource.id, resource.getProperties(), resource)
     const services = this.#extensionsOfContentType.get(extname)
-    for (const service of services!) {
-      console.debug(service.name, 'emit read')
-      service.emit('read', msgid, resource.id, uri.local(), resource)
+    if (!services || services.length === 0) {
+      resource.putProperty({ name: 'thumbnail', value: null, type: PropertyType.Binary, query: false, store: false })
+      this.#storageService[0].onUpdateEvent(msgid, resource.id, resource.getProperties(), resource)
+    } else {
+      for (const service of services!) {
+        console.debug(service.name, 'emit read')
+        service.emit('read', msgid, resource.id, uri.local(), resource)
+      }
     }
     return Result.success(resource)
   }
@@ -439,5 +560,13 @@ export class ExtensionManager {
     //   console.error('unknow command', command)
     // }
     return Result.success(true)
+  }
+
+  getSupportContentType() {
+    let supports = []
+    for (const extension of this.#extensionsOfContentType) {
+      supports.push(extension[0])
+    }
+    return supports
   }
 }

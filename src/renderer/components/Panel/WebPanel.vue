@@ -1,6 +1,6 @@
 <template>
   <div class="webview" @drop="dropFiles($event)" @dragover.prevent>
-    <PopMenu :list="extensionMenus" :underline="false" @ecmcb="onRightMenu" tag="overview"></PopMenu>
+    <PopMenu :list="extensionMenus" :underline="false" @ecmcb="onRightMenu" @disappear="onMenuDisappear" tag="overview"></PopMenu>
     <div style="height: 100%" @mousedown.right="onRightClick($event, $root)">
       <div style="height: 100%" @dragend="dragEnd($event)" @dragstart="dragStart($event)" draggable="true" v-for="(item, index) in htmls" :key="index" v-show="htmls[index].show">
           <div style="height: 100%" v-html="item.html"></div>
@@ -16,9 +16,13 @@ import HtmlLoader from '@/common/HtmlLoader'
 import PopMenu from '@/components/Menu/PopMenu'
 import { mapState } from 'vuex'
 import bus from '../utils/Bus'
-import { clearArgs, events, getCurrentViewName, updateCurrentViewName } from '../../common/RendererService'
+import { clearArgs, events, getCurrentViewName, updateCurrentViewName, getSelectionID } from '../../common/RendererService'
 import { InternalCommand, commandService } from '@/common/CommandService'
 import { config } from '@/../public/CivetConfig'
+import { Shortcut } from '../../shortcut/Shortcut'
+import { i18n } from '@/../public/String'
+import { ViewType } from '@/../public/ExtensionHostType'
+import { CommandSystem } from '@/common/CommandSystem'
 import Vue from 'vue'
 
 export default {
@@ -29,24 +33,28 @@ export default {
       htmls: {},
       script: '',
       isUpdated: false,
-      menus: [
-        // {text: '重命名', cb: this.onChangeName},
-        // {text: '导出到计算机', cb: this.onExportFiles},
-        // {text: '删除', cb: this.onDeleteItem}
-      ],
-      extensionMenus: []
+      extensionMenus: [],
+      context: null
     }
   },
-  beforeMount() {
+  created() {
+    console.info('web panel created')
     this.$ipcRenderer.on(IPCRendererResponse.ON_EXTENSION_ROUTER_UPDATE, this.onPanelRouterInit)
     this.$events.on('civet', 'onSwitchView', this.onSwitchView)
-  },
-  mounted() {
     console.info('web panel mounted', config.defaultView)
     updateCurrentViewName(config.defaultView)
     // this.$ipcRenderer.send(IPCNormalMessage.REQUEST_UPDATE_RESOURCES)
     this.$ipcRenderer.send(IPCNormalMessage.RETRIEVE_OVERVIEW, config.defaultView)
     bus.emit(bus.EVENT_UPDATE_NAV_DESCRIBTION, {name: '全部', cmd: 'display-all'})
+  },
+  async activated() {
+    if (!this.isUpdated) return
+    console.debug('****Web panel activated')
+    await this.onScriptInit()
+  },
+  mounted() {
+    console.info('web panel mounted', config.defaultView)
+    this.$events.on('Overview', 'click', this.onViewClick)
   },
   watch: {
     $route: function(to, from) {
@@ -60,7 +68,8 @@ export default {
           // this.$store.dispatch('display')
           console.info('Overview update', this.$store.state.Cache.viewClass)
           if (to.query.name === '全部') {
-            this.$store.dispatch('getClassesAndFiles', '/')
+            // CommandSystem.execute('global.library.action.create', '/')
+            CommandSystem.execute('global.library.action.getall', '/')
           }
           bus.emit(bus.EVENT_UPDATE_NAV_DESCRIBTION, {name: name, cmd: 'display-all'})
           break
@@ -68,10 +77,11 @@ export default {
           const view = getCurrentViewName()
           this.$store.dispatch('getUncategoryResources')
           // this.$events.emit('Overview:' + view, 'update', {resource: this.$store.state.Cache.viewItems})
+          CommandSystem.execute('global.library.action.unclassify')
           break
         case '/untag':
           // this.$events.emit('Overview:' + view, 'update', {resource: this.$store.state.Cache.viewItems})
-          this.$store.dispatch('getUntagResources')
+          CommandSystem.execute('global.library.action.untag')
           break
         case '/query':
           switch (to.query.type) {
@@ -94,39 +104,24 @@ export default {
   }),
   async updated() {
     if (this.isUpdated) return
-    const activateView = getCurrentViewName()
-    // HtmlLoader.injector(activateView)
-    try {
-      // await ScriptLoader.load(this.script, activateView)
-      await SandBoxManager.switchSandbox(activateView, this.script)
-    } catch (err) {
-      console.error(`load ${activateView} javascript exception: ${err}`)
-      this.isUpdated = true
-      return
-    }
-    // console.info(value, 'menu is', menus)
-    const menus = await this.$ipcRenderer.get(IPCNormalMessage.GET_OVERVIEW_MENUS, 'overview/' + activateView)
-    this.extensionMenus = []
-    for (let menu of menus) {
-      this.extensionMenus.push({
-        id: activateView,
-        name: menu.name,
-        command: menu.command
-      })
-      if (this.isInternalCommand(menu.command)) {
-        commandService.registInternalCommand(activateView, menu.command, this)
-      } else {
-        events.on(activateView, menu.command, function(args) {
-          console.info('on event', menu.command)
-          self.$ipcRenderer.send(IPCNormalMessage.POST_COMMAND, {target: activateView, command: 'ext:' + menu.command, args: args})
-        })
-      }
-    }
-    console.info('reply view menus', this.extensionMenus, menus)
-    this.$store.dispatch('display')
     this.isUpdated = true
+    await this.onScriptInit()
   },
   methods: {
+    async onScriptInit() {
+      const activateView = getCurrentViewName()
+      try {
+        await SandBoxManager.switchSandbox(activateView, this.script)
+      } catch (err) {
+        console.error(`load ${activateView} javascript exception: ${err}`)
+        this.isUpdated = true
+        return
+      }
+      this.$store.dispatch('display')
+      this.$store.dispatch('setFocus', {id: activateView, type: ViewType.Overview, instance: null})
+      await this.reinitMenu(activateView)
+      await this.reinitKeybinding(activateView)
+    },
     dropFiles(event) {
       let files = event.dataTransfer.files
       let paths = []
@@ -134,7 +129,7 @@ export default {
         paths.push(item.path)
       }
       if (paths.length > 0) {
-        this.$ipcRenderer.send(IPCNormalMessage.ADD_RESOURCES_BY_PATHS, paths)
+        CommandSystem.execute('global.resource.action.add', paths)
       }
       event.preventDefault()
     },
@@ -178,6 +173,8 @@ export default {
       switch (command) {
         case InternalCommand.DeleteResources:
         case InternalCommand.ExportResources:
+        case InternalCommand.OpenContainingFolder:
+        case InternalCommand.AnalysisResource:
           return true
         default:
           return false
@@ -190,17 +187,29 @@ export default {
       this.$store.dispatch('removeFiles', [fileid])
     },
     onRightClick(event, root) {
-      console.info('event', root)
+      console.info('Before Right Click event', root)
+      this.context = {menu: root, x: event.clientX, y: event.clientY, button: event.button}
       if (event.button === 2) { // 选择多个后右键
         // right click
         // this.imageSelected = false
+      }
+    },
+    onViewClick(selectID) {
+      console.debug('after Overiew Clicked', selectID)
+      if (selectID && this.context && this.context.button === 2) {
         clearArgs()
-        root.$emit('easyAxis', {
+        this.context.menu.$emit('easyAxis', {
           tag: 'overview',
           index: 0,
-          x: event.clientX,
-          y: event.clientY
+          x: this.context.x,
+          y: this.context.y,
+          resource: selectID
         })
+        this.context.button = -1
+      }
+    },
+    onMenuDisappear(tag) {
+      if (tag === 'overview') {
       }
     },
     onSwitchView(viewid) {
@@ -212,6 +221,66 @@ export default {
         SandBoxManager.switchSandbox(viewid)
       }
       updateCurrentViewName(viewid)
+      this.$store.dispatch('setFocus', {id: viewid, type: ViewType.Overview, instance: null})
+    },
+    async reinitMenu(activateView) {
+      const menus = await this.$ipcRenderer.get(IPCNormalMessage.GET_OVERVIEW_MENUS, 'overview/' + activateView)
+      this.extensionMenus = [
+        {
+          id: activateView,
+          group: 0,
+          name: i18n('Open Containing Folder'),
+          command: InternalCommand.OpenContainingFolder
+        },
+        {
+          id: activateView,
+          group: 0,
+          name: i18n('Analysis Resource'),
+          command: InternalCommand.AnalysisResource
+        }
+      ]
+      for (let menu of menus) {
+        this.extensionMenus.push({
+          id: activateView,
+          name: i18n(menu.name),
+          command: menu.command
+        })
+      }
+      for (let menu of this.extensionMenus) {
+        if (this.isInternalCommand(menu.command)) {
+          commandService.registInternalCommand(activateView, menu.command, this)
+        } else {
+          const self = this
+          // events.clean(activateView, menu.command)
+          events.on(activateView, menu.command, function(args) {
+            console.info('on event', menu.command)
+            self.$ipcRenderer.send(IPCNormalMessage.POST_COMMAND, {target: activateView, command: 'ext:' + menu.command, args: args})
+          })
+        }
+      }
+      console.info('reply view menus', this.extensionMenus, menus)
+    },
+    async reinitKeybinding(activateView) {
+      const activeName = 'overviewFocus.' + activateView
+      const keybinds = await this.$ipcRenderer.get(IPCNormalMessage.GET_OVERVIEW_KEYBINDS, activeName)
+      console.info(`init keybinds[${activeName}]: ${JSON.stringify(keybinds)}`)
+      for (const keybind of keybinds) {
+        const command = keybind.command
+        if (!this.isInternalCommand(command)) {
+          // command transmit to its view
+          const transmit = (when) => {
+            const currentView = getCurrentViewName()
+            console.debug(`transmit press key ${keybind.key} to overview: ${currentView}`)
+            if (when === 'overviewFocus') {
+              events.emit('Overview:' + currentView, command, getSelectionID())
+            }
+            return true
+          }
+          // const extensionName = Managebench.getExtensionName(activateView)
+          const [key, extension] = keybind.key.split(',')
+          Shortcut.register(key, extension, keybind.when, transmit)
+        }
+      }
     }
   }
 }

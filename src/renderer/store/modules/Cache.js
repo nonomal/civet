@@ -8,25 +8,18 @@ import { Cache } from './CacheInstance'
 import * as Assist from './CacheAssist'
 import { config } from '@/../public/CivetConfig'
 import { Search } from '@/common/SearchManager'
-import { PerformanceObserver, performance } from 'perf_hooks'
-
-const messageObs = new PerformanceObserver((items) => {
-  const measurements = items.getEntriesByType('measure')
-  measurements.forEach(measurement => {
-    console.debug('performance', measurement.name, measurement.duration)
-  })
-})
-messageObs.observe({ entryTypes: ['measure'] })
+import { performanceMesurement } from '@/common/PerformanceMesurement'
+import { Managebench } from './Managebench'
 
 function updateOverview(state, showClasses) {
   const view = getCurrentViewName()
   if (showClasses) {
-    events.emit('Overview:' + view, 'update', {
+    events.emit('Overview:' + view, 'updateAll', {
       'class': state.viewClass,
       'resource': state.viewItems
     })
   } else {
-    events.emit('Overview:' + view, 'update', {
+    events.emit('Overview:' + view, 'updateAll', {
       'class': [],
       'resource': state.viewItems
     })
@@ -52,7 +45,8 @@ const state = {
   untags: 0,
   unclasses: 0,
   // router histories count
-  histories: 0
+  histories: 0,
+  focusElement: null
 }
 
 const getters = {
@@ -89,7 +83,20 @@ const getters = {
   unclasses: state => { return state.unclasses },
   tags: state => { return state.tags },
   allCount: state => { return state.allCount },
-  histories: state => { return state.histories }
+  histories: state => { return state.histories },
+  i18n: (state, getters) => {
+    return (key) => {
+      console.debug('get i18n:', key, Cache.i18n)
+      return Cache.i18n[key] || key
+    }
+  },
+  focusElement: state => { return state.focusElement },
+  extensionName: (state, getters) => {
+    return (extensionID) => {
+      // return state.extensionName[extensionID]
+      return Managebench.getExtensionName(extensionID)
+    }
+  }
 }
 
 const remote = {
@@ -112,8 +119,8 @@ const mutations = {
       const resource = initResource(image)
       state.viewItems.push(resource)
     }
-    performance.mark('init view resources end')
-    performance.measure('view display time:', 'init resouce view begin', 'init view resources end')
+    performanceMesurement.mark('init view resources end')
+    performanceMesurement.measure('view display time:', 'init resouce view begin', 'init view resources end')
   },
   init(state, data) {
     console.info('cache init', data)
@@ -153,8 +160,8 @@ const mutations = {
         state.viewClass.push({name: clazz.name})
       }
       console.info('class result', state.classes)
-      performance.mark('init view infomation end')
-      performance.measure('infomation display time:', 'init view infomation begin', 'init view infomation end')
+      performanceMesurement.mark('init view infomation end')
+      performanceMesurement.measure('infomation display time:', 'init view infomation begin', 'init view infomation end')
     }
     updateOverview(state, true)
     // init classes name
@@ -192,6 +199,8 @@ const mutations = {
       if (Cache.files.hasOwnProperty(file.id)) {
         // TODO: update file info
         Cache.files[file.id].update(file)
+        const view = getCurrentViewName()
+        events.emit('Overview:' + view, 'update', file)
         continue
       }
       initResource(file)
@@ -219,7 +228,7 @@ const mutations = {
       state.viewItems.push(Cache.files[result[idx].id])
     }
     const view = getCurrentViewName()
-    events.emit('Overview:' + view, 'update', {
+    events.emit('Overview:' + view, 'updateAll', {
       'resource': state.viewItems
     })
   },
@@ -235,6 +244,11 @@ const mutations = {
       Vue.set(state.viewItems, idx, Cache.files[data[idx]])
     }
     updateOverview(state, false)
+  },
+  upsetI18n(state, data) {
+    for (const key in data) {
+      Cache.i18n[key] = data[key]
+    }
   },
   // addTag(state, info) {
   //   const { fileID, tag } = info
@@ -431,13 +445,19 @@ const mutations = {
     config.switchResource(name)
     config.save()
     state.currentResource = name
+  },
+  bindExtension(state, bindData) {
+    Managebench.bindExtension(bindData.id, bindData.extension)
+  },
+  setFocus(state, focusElement) {
+    state.focusElement = focusElement
   }
 }
 
 const actions = {
   async init({ commit }, flag) {
     try {
-      performance.mark('init resouce view begin')
+      performanceMesurement.mark('init resouce view begin')
       const filesSnap = await service.get(IPCNormalMessage.GET_RESOURCES_SNAP)
       const imagesID = []
       for (const snap of filesSnap) {
@@ -470,7 +490,7 @@ const actions = {
         }
       }
       commit('initViewResources', allResources)
-      performance.mark('init view infomation begin')
+      performanceMesurement.mark('init view infomation begin')
       const { unclasses, untags } = await remote.recieveCounts()
       const allClasses = await service.get(IPCNormalMessage.GET_ALL_CLASSES, '/')
       console.info('all classes:', allClasses)
@@ -479,8 +499,10 @@ const actions = {
       commit('init', { unclasses, untags, allClasses, filesSnap, allTags })
     } catch (err) {
       console.error(err)
-      const guider = document.getElementById('guider')
-      guider.showModal()
+      if (config.getCurrentDB() === undefined) {
+        const guider = document.getElementById('guider')
+        guider.showModal()
+      }
     }
   },
   async query({ commit }, query) {
@@ -559,6 +581,9 @@ const actions = {
     const untags = await service.get(IPCNormalMessage.GET_UNTAG_RESOURCES)
     commit('updateViewResources', untags)
   },
+  upsetI18n({commit}, data) {
+    commit('upsetI18n', data)
+  },
   clear({ commit }, data) {
     commit('clear', data)
   },
@@ -590,6 +615,12 @@ const actions = {
   },
   switchResource({commit}, name) {
     commit('switchResource', name)
+  },
+  bindExtension({commit}, bindData) {
+    commit('bindExtension', bindData)
+  },
+  setFocus({commit}, focusElement) {
+    commit('setFocus', focusElement)
   }
 }
 

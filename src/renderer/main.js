@@ -5,11 +5,11 @@ import App from './App'
 import router from './router'
 import store from './store'
 import ElementUI from 'element-ui'
-// import 'element-ui/lib/theme-chalk/index.css'
 import 'element-theme-dark'
 // import Service from './components/utils/Service'
 import { service, events } from './common/RendererService'
 import commands from './common/CommandService'
+import { registCommandSystem } from './common/CommandSystem'
 import VueLazyload from 'vue-lazyload'
 import upperFirst from 'lodash/upperFirst'
 import camelCase from 'lodash/camelCase'
@@ -25,7 +25,6 @@ Vue.use(VueLazyload, {
 Vue.prototype.$ipcRenderer = service
 Vue.prototype.$events = events
 Vue.prototype.$commands = commands
-// Vue.prototype.$ipcRenderer = Service.getServiceInstance()
 
 router.afterEach((to, from) => {
   console.info('afterEach, from', from.fullPath, ', to', to.fullPath)
@@ -65,9 +64,11 @@ requireComponent.keys().forEach(fileName => {
 })
 
 /* eslint-disable no-new */
-new Vue({
-  components: { App },
-  router,
-  store,
-  template: '<App/>'
-}).$mount('#app')
+registCommandSystem(
+  new Vue({
+    components: { App },
+    router,
+    store,
+    template: '<App/>'
+  }).$mount('#app')
+)

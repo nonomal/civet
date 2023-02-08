@@ -82,16 +82,44 @@ declare module 'civet' {
         Search = 0x10
     }
 
-    /**
-     * ConditionItem is embeded into search bar, which is to update search conditions
-     */
-    export interface ConditionItem {
-        html: string;
-        conditions: Array<string|Date>;
-        // onQueryChange();
+    export interface SelectionChangedEvent {
+        values: string[];
     }
+    /**
+     * Selectors is embeded into search bar, which is to update search conditions
+     */
+    export interface EnumSelector {
+        readonly size: number;
+        addEnumeration(desc: string[]): void;
+        /**
+         *  @brief after enumeration select, you can process selection result before it send to query.
+         */
+        onSelectionChanged(listener: (e: SelectionChangedEvent) => Object | string[] | string, thisArg?: any): void;
+    }
+    export interface DatetimeSelector {
+        readonly datetime: number;
+        onSelectionChanged(listener: (e: SelectionChangedEvent) => Object | string[] | string, thisArg?: any): void;
+    }
+    export interface ColorSelector {
+        readonly color: string;
+        onSelectionChanged(listener: (e: SelectionChangedEvent) => Object | string[] | string, thisArg?: any): void;
+    }
+    export interface RangeSelector {
+        onSelectionChanged(listener: (e: SelectionChangedEvent) => Object | string[] | string, thisArg?: any): void;
+    }
+    
     export interface SearchBar {
-        items: ConditionItem[];
+        /**
+         * 
+         * @param queryWord a query word that use for query as a keyword
+         * @param defaultName this name is display when none of selection
+         * @param multiple if selection is single only, the value is false. Otherwise is true
+         */
+        createEnumSelector(queryWord: string, defaultName: string, multiple: boolean): EnumSelector;
+        createDatetimeSelector(): DatetimeSelector;
+        createColorSelector(): ColorSelector;
+        createRangeSelector(): RangeSelector;
+        addSelector(selector: EnumSelector | DatetimeSelector | ColorSelector | RangeSelector): boolean;
     }
 
     /**
@@ -126,13 +154,6 @@ declare module 'civet' {
         readonly items: IResource[];
     }
 
-    export enum OverviewItemLayout {
-        WaterFall = 0,
-        Grid = 1,
-        Row = 2,
-        Custom = 3
-    }
-
     export interface ClassItem {
         name: string;
         path?: string;
@@ -150,27 +171,6 @@ declare module 'civet' {
         resource: string;
     }
 
-    export enum ScrollType {
-        None = 0,
-        Horizon = 1,
-        Vertical = 2
-    }
-
-    export interface OverviewVisibleRangesChangeEvent {
-        view: OverView;
-        scroll: ScrollType;
-        percent: number;
-    }
-
-    export enum OverviewItemType {
-        Resource = 0,
-        Class = 1
-    }
-
-    export interface OverviewItem {
-        id: number;
-        type: OverviewItemType
-    }
     /**
      * @brief an overview is to display all items in the center  
      */
@@ -186,7 +186,7 @@ declare module 'civet' {
         onDragResources(listener: (e: OverviewItemLoadEvent) => void, thisArg?: any): void;
         
         onDidReceiveMessage(listener: (message: any) => void, thisArg?: any): void;
-        onDidChangeOverviewVisibleRanges(listener: (e: OverviewVisibleRangesChangeEvent) => void, thisArg?: any): void;
+        // onDidChangeOverviewVisibleRanges(listener: (e: OverviewVisibleRangesChangeEvent) => void, thisArg?: any): void;
     }
     
     export interface Anotator {}
@@ -210,8 +210,6 @@ declare module 'civet' {
     export namespace window {
         export let searchBar: SearchBar;
 
-        export function createConditionItem(id: string): ConditionItem;
-
         export let propertyView: PropertyView;
         /**
          * @description after an item is selected, this event is envoked and item's property will be passed
@@ -220,6 +218,8 @@ declare module 'civet' {
         export function onDidSelectContentItem(listener: (e: ContentItemSelectedEvent) => void, thisArg?: any): void;
 
         export function createOverview(id: string, router: string): OverView;
+        
+        export function getActiveOverview(): OverView;
         /**
          * @description create a content view for watching. 
          * @param id id of content view
@@ -233,6 +233,9 @@ declare module 'civet' {
     }
 
     export namespace utility {
+        /**
+         * @description extension path that can be retrieved by extension
+         */
         export const extensionPath: string;
         /**
          * @description get all classes, which likes /a/b/c
@@ -242,5 +245,7 @@ declare module 'civet' {
          * @description get all tags
          */
         export function getTags(): string[];
+
+        export function getSupportContentType(): string[];
     }
 }

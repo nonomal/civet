@@ -17,7 +17,9 @@
       <el-col :span="16">
         <div class="display">
           <div id="loading-progress" v-if="loadProgress < 100"></div>
+          <keep-alive>
           <router-view></router-view>
+          </keep-alive>
         </div>
       </el-col>
       <el-col :span="4" class="nav-light">
@@ -78,7 +80,7 @@ export default {
         if (e.which === 17 && Global.ctrlPressed) {
           Global.ctrlPressed = false
         }
-      } else if (platform === 'mac') {
+      } else if (platform === 'darwin') {
         if (e.metaKey && Global.ctrlPressed) {
           Global.ctrlPressed = false
         }

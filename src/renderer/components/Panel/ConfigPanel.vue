@@ -10,12 +10,39 @@
           </el-input>
           <label>提示：数据库存储文件的数据信息。如果删除掉，所有文件数据将不再可用，标签及分类等信息完全丢失</label>
         </div>
+        <div>
+          <label>日志路径：{{logpath}}</label>
+        </div>
+        <div>
+          <label>配置路径：{{configPath}}</label>
+        </div>
       </el-collapse-item>
     </el-collapse>
   <!-- <el-button :disabled="!enableTransfer" slot="append" @click="onStartTransfer()">{{tansferMessage}}</el-button> -->
     <div class="modules">
       <el-collapse accordion>
-        <el-collapse-item title="基本信息" name="1">
+        <el-collapse-item title="快捷键" name="1">
+          <el-row :gutter="20">
+            <el-col :span="4"><div>快捷键</div></el-col>
+            <el-col :span="4"><div>命令</div></el-col>
+            <el-col :span="4"><div>所属插件</div></el-col>
+            <el-col :span="8"><div>功能描述</div></el-col>
+            <el-col :span="4"><div>激活事件</div></el-col>
+          </el-row>
+          <el-divider></el-divider>
+          <div v-for="(item, idx) of shortcuts" :key="idx">
+            <el-row :gutter="20">
+              <el-col :span="4"><ShortCut :defaultShortcuts="item.shortcut" :extension="item.extension" @changed="onShortCutChanged"></ShortCut></el-col>
+              <el-col :span="4"><div>{{item.command}}</div></el-col>
+              <el-col :span="4"><div>{{item.extension}}</div></el-col>
+              <el-col :span="8"><div>{{item.desc}}</div></el-col>
+              <el-col :span="4"><div>{{item.when}}</div></el-col>
+            </el-row>
+          </div>
+        </el-collapse-item>
+      </el-collapse>
+      <!-- <el-collapse accordion>
+        <el-collapse-item title="基本信息" name="2">
           <el-row :gutter="20">
             <el-col :span="6"><div>键</div></el-col>
             <el-col :span="6"><div>名称</div></el-col>
@@ -32,7 +59,7 @@
             </el-row>
           </div>
         </el-collapse-item>
-      </el-collapse>
+      </el-collapse> -->
     <!-- <el-divider content-position="left">可用插件</el-divider>
     <el-collapse v-model="valiablePlugins" @change="handlePluginChange">
       <div v-for="(item, idx) of valiablePlugins" :key="idx">
@@ -73,24 +100,31 @@
 
 <script>
 import bus from '../utils/Bus'
-import { remote } from 'electron'
+import { dialog, getCurrentWindow, globalShortcut } from '@electron/remote'
 import Folder from '../utils/Folder'
 import fs from 'fs'
 import { config } from '@/../public/CivetConfig'
 import { IPCNormalMessage } from '@/../public/IPCMessage'
+import ShortCut from '../Control/Shortcut'
+import { Shortcut } from '../../shortcut/Shortcut'
+import { getCurrentViewName } from '../../common/RendererService'
 
 export default {
   name: 'config-page',
+  components: {ShortCut},
   data() {
+    const configPath = config.getConfigPath()
     return {
       version: '',
       activeResource: ['1'],
-      configPath: '',
+      configPath: configPath,
       enableTransfer: false,
       tansferMessage: '开始迁移',
       oldConfig: '',
       config: '',
+      logpath: '',
       properties: [],
+      shortcuts: [],
       valiablePlugins: [
         {path: '', name: 'image', version: '0.0.1', valid: true}
       ],
@@ -109,7 +143,20 @@ export default {
       this.properties.push(s)
     }
     this.version = config.version
-    // console.info('schema', this.properties)
+    config.getConfig(true)
+    const shortcuts = config.getShortCuts()
+    console.debug('shortcuts:', shortcuts)
+    for (const key in shortcuts) {
+      this.shortcuts.push({
+        shortcut: key,
+        command: shortcuts[key].command,
+        extension: shortcuts[key].extension,
+        desc: shortcuts[key].description,
+        when: shortcuts[key].when
+      })
+    }
+    const app = require('@/../public/System').default.app()
+    this.logpath = app.getPath('logs')
   },
   methods: {
     loadPlugins: () => {
@@ -125,7 +172,7 @@ export default {
     },
     onSelectDBPath() {
       let self = this
-      remote.dialog.showOpenDialog(remote.getCurrentWindow(), {
+      dialog.showOpenDialog(getCurrentWindow(), {
         properties: ['openDirectory', 'openFile']
       }).then(async (data) => {
         if (data === undefined) return
@@ -153,6 +200,14 @@ export default {
           this.oldConfig.db.path = this.config.db.path
         }
       }
+    },
+    onShortCutChanged(originShortcut, newshortcut, extension) {
+      if (newshortcut.length === 0 || originShortcut.length === 0) return
+      const newKeybind = newshortcut.join(' ')
+      console.debug('save short cut:', originShortcut, newKeybind, extension)
+      config.updateShortCut(originShortcut, newKeybind + ',' + extension)
+      config.save()
+      Shortcut.updateKey(originShortcut, newKeybind, extension)
     }
   }
 }

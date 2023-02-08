@@ -12,20 +12,10 @@
     <el-col :span="2" class="custom">
       <el-page-header @back="goBack" :content="viewDesc" :style="[disabled?style:'']"></el-page-header>
     </el-col>
-    <!-- <el-col :span="1">
-      <el-dropdown size="mini" trigger="click" @command="onQueryKindChange">
-        <span class="query-kind">
-          {{queryKinds[queryIdx].name}}<i class="el-icon-arrow-down el-icon--right"></i>
-        </span>
-        <el-dropdown-menu slot="dropdown">
-          <el-dropdown-item :key="idx" v-for="(queryKind, idx) in queryKinds" :command="queryKind.command">
-            {{queryKind.name}}
-          </el-dropdown-item>
-        </el-dropdown-menu>
-      </el-dropdown>
-    </el-col> -->
     <el-col :span="16" class="custom">
+      <keep-alive>
       <component :is="comName"></component>
+      </keep-alive>
     </el-col>
     <el-col :span="4">
       <SearchBar></SearchBar>
@@ -39,7 +29,7 @@
 <script>
 import bus from './utils/Bus'
 import ViewFilter from '@/components/ViewFilter'
-import ImageOperator from '@/components/ImageOperator'
+import ResourceHeader from '@/components/ResourceHeader'
 import { IPCNormalMessage } from '@/../public/IPCMessage'
 // import Service from '@/components/utils/Service'
 import PageMenu from '@/components/Menu/PageMenu'
@@ -71,7 +61,7 @@ export default {
   },
   components: {
     ViewFilter,
-    ImageOperator,
+    ResourceHeader,
     PageMenu,
     SearchBar
   },
@@ -155,7 +145,7 @@ export default {
           this.comName = ViewFilter
           break
         case 'display':
-          this.comName = ImageOperator
+          this.comName = ResourceHeader
           break
         default:
           break

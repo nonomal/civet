@@ -17,6 +17,7 @@
       let _cv_message_id_ = 0
       let _cv_activate_view_name = ''
       let _cv_content_view_name = ''
+      let _cv_select_id_ = undefined
       let _cv_overview_listeners = {}
       let _cv_contentview_listeners = {}
       const _cv_events = (function() {
@@ -43,6 +44,21 @@
               console.info(id, 'EventEmitter On', event)
             }
             events[id].on(event, listener)
+          },
+          once: function(id, event, listener) {
+            if (!events[id]) {
+              events[id] = new EventEmitter()
+              console.info(id, 'EventEmitter Once', event)
+            }
+            events[id].once(event, listener)
+          },
+          clean: function(id, event) {
+            if (!events[id]) return
+            if (!event) {
+              events[id].removeAllListeners()
+              return
+            }
+            events[id].removeAllListeners(event)
           }
         }
       })()
@@ -62,10 +78,16 @@
       const acquireCivetApi = (function() {
         const Overview = {
           click: function(id) {
+            _cv_select_id_ = id
             _cv_events.emit('PropertyView', 'click', id)
-            _cv_messageSender_.send('getSelectContentItemInfo', {id: [id]})
+            _cv_events.emit('Overview', 'click', id)
+            if (id) {
+              _cv_messageSender_.send('getSelectContentItemInfo', {id: [id]})
+            }
           },
-          rclick: function(x, y, id) {},
+          rclick: function(x, y, id) {
+            console.debug('right click')
+          },
           remove: function(id) {
             console.info('remove item:', id)
           },

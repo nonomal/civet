@@ -33,20 +33,28 @@ export class StorageService implements IStorageService{
 
   onUpdateEvent(messageId: number, rId: number, data: ResourceProperty[], resource: Resource): void {
     console.debug('onUpdateEvent', rId, data)
+    // multiple times come in here
     if (data.length > 1) {
       const store = this.toJson(resource)
       CivetDatabase.addFiles([store])
       const thumbnail = resource.getPropertyValue('thumbnail')
+      console.debug('update event here')
       if (thumbnail) {
         CivetDatabase.addMeta([resource.id], { name: 'thumbnail', value: thumbnail, type: 'bin' })
       }
     } else {
-      if (data[0].name === 'color') {
-        CivetDatabase.addMeta([rId], { name: data[0].name, value: data[0].value, type: 'color', query: true })
-      } else {
-        if (data[0].value && data[0].value.length !== 0) {
-          CivetDatabase.addMeta([rId], { name: data[0].name, value: data[0].value, type: data[0].type })
-        }
+      switch(data[0].name) {
+        case 'color':
+          CivetDatabase.addMeta([rId], { name: data[0].name, value: data[0].value, type: 'color', query: true })
+          break
+        case 'tag':
+          CivetDatabase.setTags([rId], data[0].value)
+          break
+        default:
+          if (data[0].value && data[0].value.length !== 0) {
+            CivetDatabase.addMeta([rId], { name: data[0].name, value: data[0].value, type: data[0].type })
+          }
+          break
       }
     }
 

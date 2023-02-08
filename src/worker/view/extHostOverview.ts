@@ -4,7 +4,7 @@ import { ExtHostWebView, HostHTML } from './extHostWebView'
 import { RPCProtocal } from '../common/RpcProtocal'
 import { CivetDatabase } from '../Kernel'
 import importHTML from '../api/HtmlParser'
-import { ViewType, ExtOverviewItemLoadEvent, ExtOverviewVisibleRangesChangeEvent } from '@/../public/ExtensionHostType'
+import { ViewType, ExtOverviewItemLoadEvent } from '@/../public/ExtensionHostType'
 import { IPCNormalMessage, IPCRendererResponse } from '@/../public/IPCMessage'
 import { registHostEvent } from '../Singleton'
 import { CivetProtocol } from '@/../public/Event'
@@ -39,10 +39,12 @@ function generateResourcesLoadingEvent(): ExtOverviewItemLoadEvent {
 export class ExtOverview extends ExtHostWebView {
   #hash: string;
   #updated: boolean;
+  #extname: string;
 
-  constructor(id: string, rpcProxy: RPCProtocal) {
+  constructor(id: string, rpcProxy: RPCProtocal, extensionName: string) {
     super(id, rpcProxy)
     this.#updated = false
+    this.#extname = extensionName
   }
 
   set html(val: string) {
@@ -63,6 +65,7 @@ export class ExtOverview extends ExtHostWebView {
   }
 
   get html() { return super.getHtml().html }
+  get extensionName() { return this.#extname }
 
   forceUpdate() {
     this.#updated = false
@@ -80,9 +83,14 @@ export class ExtOverview extends ExtHostWebView {
   }
 
   onResourcesLoading(listener: (e: ExtOverviewItemLoadEvent) => void, thisArg?: any): void {
+    const self = this
     const onResourcesLoadingWrapper = function (): void {
       let event = generateResourcesLoadingEvent()
-      listener.call(thisArg, event)
+      try {
+        listener.call(thisArg, event)
+      } catch (err: any) {
+        console.error(`extension '${self.id}' onResourcesLoading run fail: ${err}`)
+      }
     }
     this.proxy.pipeline.regist(IPCNormalMessage.REQUEST_UPDATE_RESOURCES, onResourcesLoadingWrapper)
     this.event.on(IPCNormalMessage.REQUEST_UPDATE_RESOURCES, onResourcesLoadingWrapper);
@@ -97,7 +105,7 @@ export class ExtOverview extends ExtHostWebView {
 
   onDidReceiveMessage(listener: (message: any) => void, thisArg?: any): void {}
 
-  onDidChangeOverviewVisibleRanges(listener: (e: civet.OverviewVisibleRangesChangeEvent) => void, thisArg?: any): void {}
+  // onDidChangeOverviewVisibleRanges(listener: (e: civet.OverviewVisibleRangesChangeEvent) => void, thisArg?: any): void {}
 }
 
 @injectable
@@ -122,11 +130,12 @@ export class ExtOverviewEntry {
     rpcProxy.on(IPCNormalMessage.RETRIEVE_OVERVIEW, this.onRequestOverview, this)
   }
 
-  createOverviewEntry(id: string, router: string): ExtOverview{
-    const overview = new ExtOverview(id, this.#proxy)
+  createOverviewEntry(id: string, router: string, extensionName: string): ExtOverview{
+    const overview = new ExtOverview(id, this.#proxy, extensionName)
     this.#overviews.set(id, overview)
     const pipeline = this.#proxy.pipeline
     pipeline.post(IPCRendererResponse.ON_VIEW_ROUTER_ADD, [{name: id, display: router}])
+    pipeline.post(IPCRendererResponse.ON_MANAGEBENCH_INIT, [{id: id, extension: extensionName}])
     return overview
   }
 
@@ -158,5 +167,19 @@ export class ExtOverviewEntry {
       return
     }
     overview.event.emit(IPCNormalMessage.ADD_RESOURCES_BY_PATHS, resource)
+  }
+
+  getActiveView() {
+    const overview = this.#overviews.get(this.#activeView)
+    if (!overview) {
+      const msg = `overview extension ${this.#activeView} not exist`
+      console.error(msg)
+      throw Error(msg)
+    }
+    return overview
+  }
+
+  getOverviewsByName(name: string): ExtOverview|undefined {
+    return this.#overviews.get(name)
   }
 }

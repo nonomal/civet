@@ -1,4 +1,6 @@
 import path from 'path'
+import sudo from 'sudo-prompt'
+
 const fs = require('fs')
 
 export function convert2ValidDate(str: string): string {
@@ -56,13 +58,31 @@ export function isFileExist(filepath: string): boolean {
   return false;
 }
 
-export function runCommand(cmd: string, dir: string): boolean {
+export async function runCommand(cmd: string, dir: string, auth: boolean = false): Promise<boolean> {
   const curDir = process.cwd()
   process.chdir(dir)
-  const { execSync } = require('child_process');
   try {
-    let child = execSync(cmd).toString()
-    console.info(child)
+    let info;
+    if (!auth) {
+      const { execSync } = require('child_process');
+      info = execSync(cmd).toString()
+      process.chdir(curDir)
+      return true
+    } else {
+      const f = new Promise(function (resolve, reject) {
+        sudo.exec(cmd, {
+          name: 'Civet'
+        }, function (error: Error|undefined, stdout, stderr) {
+          if (error) {
+            reject(error)
+            return
+          }
+          resolve(stdout)
+        })
+      })
+      info = await f
+    }
+    console.info(info)
   }catch(error) {
     process.chdir(curDir)
     return false
@@ -77,15 +97,21 @@ export function getExtensionPath(): string {
     const os = require('os')
     switch(os.platform()) {
       case 'linux':
+        {
+          const process = require('./System').default.proc()
+          extensionLocation = 'resources/app.asar.unpacked'
+          return path.dirname(process.execPath) + '/' + extensionLocation
+        }
       case 'win32':
         extensionLocation = 'resources/app.asar.unpacked'
         return path.resolve('.') + '/' + extensionLocation
-      case 'mac':
+      case 'darwin':
         // match electron builder's path
         extensionLocation = 'Resources/app.asar.unpacked'
         return '/Applications/Civet.app/Contents/' + extensionLocation
       default: break
     }
+    console.debug('platform:', os.platform())
   }
   return path.resolve('.') + '/' + extensionLocation
 }
@@ -100,8 +126,19 @@ export function resetArray<T>(vue: any, array: T[], newVal: T[]) {
   }
 }
 
+function safeFromCharCode(codes: any) {
+  let result = ''
+  let chunk = 8 * 1024
+  let idx = 0
+  for (let len = codes.length / chunk; idx < len; ++idx) {
+      result += String.fromCharCode.apply(null, codes.subarray(idx * chunk, (idx + 1) * chunk))
+  }
+  result += String.fromCharCode.apply(null, codes.subarray(idx * chunk, codes.length - idx * chunk - 1))
+  return result
+}
+
 export function thumbnail2Base64(thumbnail: any) {
-  return 'data:image/jpg;base64,' + btoa(String.fromCharCode.apply(null, thumbnail))
+  return 'data:image/png;base64,' + btoa(safeFromCharCode(thumbnail))
 }
 
 export function buffer2Base64(buffer: Buffer) {
@@ -130,4 +167,24 @@ export function text2PNG(text: string, width: number, height: number): string {
 
 export function hasProtocol(url: string) {
   return url.startsWith('//') || url.startsWith('http://') || url.startsWith('https://')
+}
+
+/**
+ * @brief Convert input key name to Civet system key name
+ * @param key 
+ * @returns 
+ */
+export function localKey(key: string) {
+  switch (key) {
+    case 'Control': return 'CommandOrControl'
+    case 'Command': return 'CommandOrControl'
+    case 'Alt': return 'Alt'
+    case 'Option': return 'Opt'
+    default: return key
+  }
+}
+
+export function isLocalResource(path: string) {
+  if (/http[s]{0,1}:\/\/(.*)/.test(path)) return false
+  return true
 }

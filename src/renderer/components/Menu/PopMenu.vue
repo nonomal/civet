@@ -54,6 +54,7 @@
 import { events, getCommandArgs } from '../../common/RendererService'
 import { getCurrentViewName } from '@/common/RendererService'
 import { globalEvents } from '@/common/GlobalEvents'
+import { enUSCount } from '@/../public/String'
 
 export default {
   name: 'PopMenu',
@@ -116,16 +117,25 @@ export default {
       if (axis.tag === this.tag) {
         this.show = true
         this.axis = axis
+        let maxCount = 6
+        let maxName = ''
+        for (const item of this.list) {
+          if (item.name.length > maxCount) maxName = item.name
+        }
+        const itemWidth = maxName.length + enUSCount(maxName) / 2
+        this.itemWidth = itemWidth * this.fontSize
+        // console.info('list:', this.list, maxName, this.itemWidth)
       }
     })
     globalEvents.addEventListener('click', () => {
       console.info('click', this.show)
       this.show = false
+      this.$emit('disappear', this.tag)
     }, true)
-    globalEvents.setEventFinishLisetner('click', () => {
-      const view = getCurrentViewName()
-      this.$events.emit('Overview:' + view, 'click')
-    })
+    // globalEvents.setEventFinishLisetner('click', () => {
+    //   const view = getCurrentViewName()
+    //   this.$events.emit('Overview:' + view, 'click')
+    // })
   },
   watch: {
     axis() {
@@ -193,7 +203,7 @@ export default {
       } else {
         // send item command
         console.info(`emit command ${item.command} to ${item.id}, args ${getCommandArgs(item.command)}`)
-        events.emit(item.id, item.command, getCommandArgs(item.command))
+        events.emit(item.id, item.command, getCommandArgs(item.command) || this.axis.resource)
       }
     }
   }

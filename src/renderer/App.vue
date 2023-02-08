@@ -17,6 +17,8 @@ import { IPCRendererResponse, IPCNormalMessage } from '@/../public/IPCMessage'
 import { getCurrentViewName } from '@/common/RendererService'
 import { text2PNG } from '@/../public/Utility'
 import { Cache } from '@/store/modules/CacheInstance'
+import { isEmpty } from '@/../public/String'
+import { Shortcut, keyDownHandler } from './shortcut/Shortcut'
 
 export default {
   name: 'civet',
@@ -28,7 +30,10 @@ export default {
     // regist ipc message process function
     this.$ipcRenderer.on(IPCRendererResponse.ON_RESOURCE_UPDATED, this.onUpdateResources)
     this.$ipcRenderer.on(IPCRendererResponse.ON_ERROR_MESSAGE, this.onErrorTips)
-    this.$events.on('civet', 'onErrorMessage', this.onErrorTips)
+    this.$ipcRenderer.on(IPCRendererResponse.ON_I18N, this.onI18N)
+    this.$ipcRenderer.on(IPCRendererResponse.ON_MANAGEBENCH_INIT, this.onManagebenchInit)
+    this.$ipcRenderer.on('keydown', this.onSystemKeydown)
+    this.$events.on('civet', IPCRendererResponse.ON_ERROR_MESSAGE, this.onErrorTips)
   },
   mounted() {
     console.info('mount:', config)
@@ -41,11 +46,13 @@ export default {
         this.$store.dispatch('init')
         this.$events.on('civet', 'showResourceDetail', this.onResourceShow)
         this.$events.on('civet', 'openClass', this.onClassOpen)
+        this.$events.on('civet', 'changeResourceName', this.onCommandChangeName)
       })
     }
     if (config.shouldUpgrade()) {
       config.save()
     }
+    document.addEventListener('keydown', keyDownHandler(this))
     // send this message to worker, and recieve workbench extension view for initial.
     this.$ipcRenderer.send(IPCNormalMessage.RENDERER_MOUNTED)
   },
@@ -120,6 +127,13 @@ export default {
       console.info('open class', classpath)
       this.$store.dispatch('getClassesAndFiles', classpath.params)
     },
+    onCommandChangeName(resource) {
+      console.debug('onCommandChangeName', resource)
+      const params = resource.params
+      if (params.id !== undefined && !isEmpty(params.name)) {
+        this.$store.dispatch('changeFileName', {id: params.id, filename: params.name})
+      }
+    },
     onErrorTips(info) {
       console.error(info)
       const h = this.$createElement
@@ -134,6 +148,23 @@ export default {
     onCloseGuider() {
       const cfg = document.getElementById('guider')
       cfg.close()
+    },
+    onI18N(i18n) {
+      console.debug('on i18n:', i18n)
+      this.$store.commit('upsetI18n', i18n)
+    },
+    onSystemKeydown(params) {
+      console.debug('system keydown:', params)
+      const key = params.toLowerCase()
+      const func = Shortcut.get(key)
+      if (func) func()
+    },
+    initializeShortcut() {
+      // globalShortcut
+      // globalShortcut.unregister('CommandOrControl+R')
+    },
+    onManagebenchInit(bindData) {
+      this.$store.dispatch('bindExtension', bindData)
     }
   },
   destroyed: function() {

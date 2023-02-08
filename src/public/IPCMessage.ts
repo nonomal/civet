@@ -8,8 +8,8 @@ export enum IPCExtensionMessage {
 
 export enum IPCNormalMessage {
   // system
-  // ON_ERROR_MESSAGE = 'onErrorMessage',
   RENDERER_MOUNTED = 'mounted',
+  IS_PATH_EXIST = 'isPathExist',
   // resource
   RENDERER_GET_RESOURCE_INFO = 'getImageInfo',
   RENDERER_GET_RESOURCES_INFO = 'getImagesInfo',
@@ -20,6 +20,7 @@ export enum IPCNormalMessage {
   GET_UNTAG_RESOURCES = 'getUntagImages',
   ADD_RESOURCES_BY_DIRECORY = 'addImagesByDirectory',
   ADD_RESOURCES_BY_PATHS = 'addImagesByPaths',
+  UPDATE_RESOUCE_BY_ID = 'updateResourceByID',
   QUERY_RESOURCES = 'queryFiles',
   ON_RESOURCE_UPDATE = 'updateImageList',
   UPDATE_RESOURCE_CLASS = 'updateImageCategory',
@@ -49,6 +50,7 @@ export enum IPCNormalMessage {
   REQUEST_UPDATE_RESOURCES = 'onResourcesLoading',
   RETRIEVE_OVERVIEW = 'rtvOverview',
   GET_OVERVIEW_MENUS = 'getOverviewMenus',
+  GET_OVERVIEW_KEYBINDS = 'getOverviewKeybinds',
   // content view
   RETRIEVE_CONTENT_VIEW = 'rtvContentView',
   // commands
@@ -71,14 +73,19 @@ export enum IPCRendererResponse {
   reInitDB = 'replyReloadDBStatus',
   getFilesSnap = 'replyFilesSnap',
   getOverviewMenus = 'replyOverviewMenus',
+  getOverviewKeybinds = 'replyOverviewKeybinds',
   install = 'replyInstallResult',
   uninstall = 'replyUninstallResult',
   getActiveCmd = 'replyActiveCommands',
   getExtensions = 'replyAllExtensions',
+  isPathExist = 'replyPathExist',
   ON_ERROR_MESSAGE = 'onEM',
   ON_VIEW_ROUTER_ADD = 'onVRI',
   ON_VIEW_ROUTER_CLEAR = 'onVRC',
   ON_EXTENSION_ROUTER_UPDATE = 'Overview',
   ON_EXTENSION_CONTENT_UPDATE = 'ContentView',
-  ON_RESOURCE_UPDATED = 'onRU'
+  ON_RESOURCE_UPDATED = 'onRU',
+  ON_I18N = 'i18n',
+  ON_MANAGEBENCH_INIT = 'onMI',           /**< after view finished, this message send extension and its instance id to view*/
+  ON_SEARCH_INIT_COMMAND = 'onSIC'
 }

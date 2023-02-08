@@ -7,12 +7,13 @@ import { logger } from '@/../public/Logger'
 import { CivetDatabase } from './Kernel'
 import { getExtensionPath} from '@/../public/Utility'
 import { Resource } from '@/../public/Resource'
-import { ExtSearchBar } from './view/extHostSearchBar'
+import { ExtSearchBarManager } from './view/extHostSearchBar'
 import { ExtPropertyView } from './view/extHostPropertyView'
 import { ExtOverview, ExtOverviewEntry } from './view/extHostOverview'
 import { ExtContentViewEntry } from './view/extHostContentView'
 import { ExtMenusEntry } from './contrib/extHostMenus'
 import { ExtCommandsEntry } from './contrib/extCommand'
+import { ExtensionManager } from './ExtensionManager'
 
 export interface IExtensionApiFactory {
 	(extension: any, registry: any, configProvider: any): typeof civet;
@@ -20,20 +21,15 @@ export interface IExtensionApiFactory {
 
 export function createApiFactoryAndRegisterActors(pipeline: MessagePipeline, extensionName: string): IExtensionApiFactory {
   const rpcProtocal = registSingletonObject(RPCProtocal)
-  const extSearchBar = registSingletonObject(ExtSearchBar)
+  const extSearchBarManager = registSingletonObject(ExtSearchBarManager)
   const extPropertyView = rpcProtocal.set(ExtPropertyView.name, ExtPropertyView)
   const extOverViewEntry = registSingletonObject(ExtOverviewEntry)
   const extContentViewEntry = registSingletonObject(ExtContentViewEntry)
   const extCommandsEntry = registSingletonObject(ExtCommandsEntry)
 
   const window: typeof civet.window = {
-    get searchBar() { return extSearchBar.searchBar },
+    get searchBar() { return extSearchBarManager as civet.SearchBar },
   
-    createConditionItem(id: string): civet.ConditionItem {
-      logger.debug(`${id} create entry ${extSearchBar.proxy}`)
-      return extSearchBar.createConditionItemEntry(id)
-    },
-
     get propertyView() { return extPropertyView.propertyView },
 
     onDidSelectContentItem(listener: (e: civet.ContentItemSelectedEvent) => void, thisArg?: any): void {
@@ -54,7 +50,11 @@ export function createApiFactoryAndRegisterActors(pipeline: MessagePipeline, ext
     },
 
     createOverview(id: string, router: string): civet.OverView {
-      return extOverViewEntry.createOverviewEntry(id, router)
+      return extOverViewEntry.createOverviewEntry(id, router, extensionName)
+    },
+
+    getActiveOverview(): civet.OverView {
+      return extOverViewEntry.getActiveView()
     },
 
     createContentView(id: string, suffixes: string[]): civet.ContentView | null {
@@ -77,6 +77,10 @@ export function createApiFactoryAndRegisterActors(pipeline: MessagePipeline, ext
     getTags(): string[] {
       const allTags = CivetDatabase.getAllTags()
       return allTags
+    },
+    getSupportContentType(): string[] {
+      const manager = getSingleton(ExtensionManager)
+      return manager!.getSupportContentType()
     }
   }
   
@@ -90,9 +94,6 @@ export function createApiFactoryAndRegisterActors(pipeline: MessagePipeline, ext
       // enum
       PropertyType: ExtensionHostType.PropertyType,
       ViewType: ExtensionHostType.ViewType,
-      OverviewItemLayout: ExtensionHostType.OverviewItemLayout,
-      ScrollType: ExtensionHostType.ScrollType,
-      OverviewItemType: ExtensionHostType.OverviewItemType,
       // function
       activate: null,
       unactivate: null

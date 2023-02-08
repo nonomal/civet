@@ -29,7 +29,10 @@ const _i18n = {
   meteringmode: '测光模式',
   spot: '点',
   colorspace: '颜色空间',
-  'reading files': '读取图片中'
+  'reading files': '读取图片中',
+  'open containing folder': '打开文件所在目录',
+  'analysis resource': '分析素材',
+  'extension is not exist': '扩展不存在'
 }
 
 export function findString(strs: string, target: any) {
@@ -91,6 +94,17 @@ export function formatColor16(val: any) {
 export function locale() {
   return (navigator.languages && navigator.languages.length) ? navigator.languages[0] : navigator.language
 }
+
+/**
+ * return the english words count in text
+ * @param text input text
+ */
+export function enUSCount(text: string) {
+  const original = text.length
+  const result = text.replace(/^[0-9a-zA-Z_]{1,}$/ig, '')
+  return original - result.length
+}
+
 export function i18n(en: string) {
   // const locale = this.locale()
   en = en.toLowerCase()
